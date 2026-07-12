@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Archivo_Black, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
+const siteUrl = new URL("https://bluntapp.reetbatra.com");
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -19,13 +21,18 @@ const archivoBlack = Archivo_Black({
 });
 
 export const metadata: Metadata = {
+  metadataBase: siteUrl,
   title: "Blunt. The speech coach that roasts you.",
   description:
     "Blunt listens to how you actually talk, tells you exactly what to fix, and makes you say it again until you stop rambling. Join the waitlist for early access.",
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     title: "Blunt. The speech coach that roasts you.",
     description:
       "An AI speech coach that roasts your rambling, gives you specific fixes, and makes you re-record until you sound sharp.",
+    url: siteUrl,
     siteName: "Blunt",
     type: "website",
   },

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { WaitlistForm } from "@/components/waitlist-form";
 
 const FILLER_STRIP = [
@@ -64,9 +65,17 @@ export default function Home() {
         <span className="font-display text-2xl uppercase tracking-tight">
           Blunt<span className="text-accent">.</span>
         </span>
-        <span className="font-mono text-xs uppercase tracking-widest text-muted">
-          Waitlist open
-        </span>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/coach"
+            className="border border-line px-4 py-3 font-mono text-xs uppercase tracking-widest text-muted transition-colors hover:border-accent hover:text-foreground"
+          >
+            Try the app
+          </Link>
+          <span className="font-mono text-xs uppercase tracking-widest text-muted">
+            Waitlist open
+          </span>
+        </div>
       </header>
 
       <main className="flex-1">
@@ -89,6 +98,9 @@ export default function Home() {
             <div className="mt-10 max-w-xl">
               <WaitlistForm source="landing-hero" />
             </div>
+            <p className="mt-4 font-mono text-xs uppercase tracking-widest text-muted">
+              Or skip the line and <Link href="/coach" className="text-accent">get roasted now</Link>.
+            </p>
           </div>
         </section>
 

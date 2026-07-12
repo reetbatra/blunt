@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
-import { ConvexHttpClient } from "convex/browser";
+import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   let payload: { email?: unknown; source?: unknown; company?: unknown };
@@ -30,8 +32,7 @@ export async function POST(request: Request) {
   const source =
     typeof payload.source === "string" ? payload.source.slice(0, 64) : undefined;
 
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
     console.error("NEXT_PUBLIC_CONVEX_URL is not set");
     return NextResponse.json(
       { error: "Waitlist is not configured" },
@@ -40,8 +41,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const client = new ConvexHttpClient(convexUrl);
-    const result = await client.mutation(api.waitlist.join, { email, source });
+    const result = await fetchMutation(api.waitlist.join, { email, source });
     return NextResponse.json({ ok: true, already: result.already });
   } catch (error) {
     console.error("Waitlist join failed:", error);
