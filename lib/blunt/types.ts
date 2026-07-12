@@ -56,4 +56,11 @@ export type SessionAnalysis = {
 export type StoredSession = SessionAnalysis & {
   id: string;
   createdAt: number;
+  anonymousId: string | null;
+};
+
+export type AnonymousProgress = {
+  scoredTakes: number;
+  completedLoops: number;
+  lastActiveAt: number | null;
 };

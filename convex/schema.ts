@@ -16,6 +16,7 @@ export default defineSchema({
   }).index("by_email", ["email"]),
   sessions: defineTable({
     userId: v.optional(v.id("users")),
+    anonymousId: v.optional(v.string()),
     promptId: v.string(),
     promptCategory: v.string(),
     promptLabel: v.string(),
@@ -36,6 +37,7 @@ export default defineSchema({
     previousSessionId: v.optional(v.id("sessions")),
     createdAt: v.number(),
   })
+    .index("by_anonymous_id", ["anonymousId"])
     .index("by_previous_session_id", ["previousSessionId"])
     .index("by_created_at", ["createdAt"]),
 });

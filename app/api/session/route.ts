@@ -11,6 +11,10 @@ export const runtime = "nodejs";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sessionsApi = (api as Record<string, any>).sessions;
 
+function createLocalSessionId() {
+  return `local-${crypto.randomUUID()}`;
+}
+
 function parseDuration(value: FormDataEntryValue | null) {
   if (typeof value !== "string") {
     return null;
@@ -26,6 +30,7 @@ export async function POST(request: Request) {
   const promptValue = formData.get("prompt");
   const durationMs = parseDuration(formData.get("durationMs"));
   const previousSessionIdValue = formData.get("previousSessionId");
+  const anonymousIdValue = formData.get("anonymousId");
 
   if (!(audio instanceof File) || audio.size === 0) {
     return NextResponse.json(
@@ -59,62 +64,45 @@ export async function POST(request: Request) {
     );
   }
 
+  const anonymousId =
+    typeof anonymousIdValue === "string" && anonymousIdValue.trim().length > 0
+      ? anonymousIdValue.trim().slice(0, 128)
+      : undefined;
+
   let previousSessionId: Id<"sessions"> | undefined;
   if (typeof previousSessionIdValue === "string" && previousSessionIdValue.length > 0) {
-    previousSessionId = previousSessionIdValue as Id<"sessions">;
-    const previous = await fetchQuery(sessionsApi.getById, {
-      id: previousSessionId,
-    });
-    if (!previous) {
-      return NextResponse.json(
-        { error: "That re-record target does not exist" },
-        { status: 400 },
-      );
-    }
+    if (!previousSessionIdValue.startsWith("local-")) {
+      previousSessionId = previousSessionIdValue as Id<"sessions">;
+      try {
+        const previous = await fetchQuery(sessionsApi.getById, {
+          id: previousSessionId,
+        });
+        if (!previous) {
+          return NextResponse.json(
+            { error: "That re-record target does not exist" },
+            { status: 400 },
+          );
+        }
 
-    if (previous.prompt.id !== prompt.id) {
-      return NextResponse.json(
-        { error: "Re-records have to stay on the same prompt" },
-        { status: 400 },
-      );
+        if (previous.prompt.id !== prompt.id) {
+          return NextResponse.json(
+            { error: "Re-records have to stay on the same prompt" },
+            { status: 400 },
+          );
+        }
+      } catch (error) {
+        console.warn("Previous session lookup failed, continuing in local-only mode:", error);
+      }
     }
   }
 
+  let analysis;
   try {
-    const analysis = await analyzeSpeech({
+    analysis = await analyzeSpeech({
       file: audio,
       durationMs,
       prompt,
       previousSessionId: previousSessionId ?? null,
-    });
-
-    const sessionId = await fetchMutation(sessionsApi.create, {
-      promptId: prompt.id,
-      promptCategory: prompt.category,
-      promptLabel: prompt.label,
-      promptText: prompt.text,
-      transcript: analysis.transcript,
-      durationMs: analysis.durationMs,
-      status: analysis.status,
-      fillerCount: analysis.scores.fillerCount,
-      fillerWords: analysis.scores.fillerWords,
-      frameworkUsed: analysis.scores.frameworkUsed ?? undefined,
-      frameworkAdherence: analysis.scores.frameworkAdherence,
-      paceWpm: analysis.scores.paceWpm,
-      vocabularyLevel: analysis.scores.vocabularyLevel,
-      critiqueText: analysis.scores.critiqueText,
-      critiqueAudioUrl: analysis.critiqueAudioUrl ?? undefined,
-      strongestQuote: analysis.scores.strongestQuote,
-      weakestQuote: analysis.scores.weakestQuote,
-      previousSessionId,
-    });
-
-    return NextResponse.json({
-      session: {
-        id: sessionId,
-        createdAt: Date.now(),
-        ...analysis,
-      },
     });
   } catch (error) {
     console.error("Session analysis failed:", error);
@@ -129,4 +117,43 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+
+  const createdAt = Date.now();
+  const sessionDraft = {
+    anonymousId: anonymousId ?? null,
+    promptId: prompt.id,
+    promptCategory: prompt.category,
+    promptLabel: prompt.label,
+    promptText: prompt.text,
+    transcript: analysis.transcript,
+    durationMs: analysis.durationMs,
+    status: analysis.status,
+    fillerCount: analysis.scores.fillerCount,
+    fillerWords: analysis.scores.fillerWords,
+    frameworkUsed: analysis.scores.frameworkUsed ?? undefined,
+    frameworkAdherence: analysis.scores.frameworkAdherence,
+    paceWpm: analysis.scores.paceWpm,
+    vocabularyLevel: analysis.scores.vocabularyLevel,
+    critiqueText: analysis.scores.critiqueText,
+    critiqueAudioUrl: analysis.critiqueAudioUrl ?? undefined,
+    strongestQuote: analysis.scores.strongestQuote,
+    weakestQuote: analysis.scores.weakestQuote,
+    previousSessionId,
+  };
+
+  let sessionId: string = createLocalSessionId();
+  try {
+    sessionId = await fetchMutation(sessionsApi.create, sessionDraft);
+  } catch (error) {
+    console.warn("Session persistence failed, returning local-only session:", error);
+  }
+
+  return NextResponse.json({
+    session: {
+      id: sessionId,
+      createdAt,
+      anonymousId: anonymousId ?? null,
+      ...analysis,
+    },
+  });
 }

@@ -4,6 +4,7 @@ import { mutation, query } from "./_generated/server";
 export const create = mutation({
   args: {
     userId: v.optional(v.id("users")),
+    anonymousId: v.optional(v.string()),
     promptId: v.string(),
     promptCategory: v.string(),
     promptLabel: v.string(),
@@ -52,6 +53,7 @@ export const getById = query({
         label: session.promptLabel,
         text: session.promptText,
       },
+      anonymousId: session.anonymousId ?? null,
       transcript: session.transcript,
       durationMs: session.durationMs,
       status: session.status,
@@ -68,6 +70,72 @@ export const getById = query({
         strongestQuote: session.strongestQuote,
         weakestQuote: session.weakestQuote,
       },
+    };
+  },
+});
+
+export const listByAnonymousId = query({
+  args: {
+    anonymousId: v.string(),
+  },
+  handler: async (ctx, { anonymousId }) => {
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_anonymous_id", (q) => q.eq("anonymousId", anonymousId))
+      .order("desc")
+      .take(12);
+
+    return sessions.map((session) => ({
+      id: session._id,
+      createdAt: session.createdAt,
+      prompt: {
+        id: session.promptId,
+        category: session.promptCategory,
+        label: session.promptLabel,
+        text: session.promptText,
+      },
+      anonymousId: session.anonymousId ?? null,
+      transcript: session.transcript,
+      durationMs: session.durationMs,
+      status: session.status,
+      critiqueAudioUrl: session.critiqueAudioUrl ?? null,
+      previousSessionId: session.previousSessionId ?? null,
+      scores: {
+        fillerCount: session.fillerCount,
+        fillerWords: session.fillerWords,
+        frameworkUsed: session.frameworkUsed ?? null,
+        frameworkAdherence: session.frameworkAdherence,
+        paceWpm: session.paceWpm,
+        vocabularyLevel: session.vocabularyLevel,
+        critiqueText: session.critiqueText,
+        strongestQuote: session.strongestQuote,
+        weakestQuote: session.weakestQuote,
+      },
+    }));
+  },
+});
+
+export const getProgressByAnonymousId = query({
+  args: {
+    anonymousId: v.string(),
+  },
+  handler: async (ctx, { anonymousId }) => {
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_anonymous_id", (q) => q.eq("anonymousId", anonymousId))
+      .collect();
+
+    const scored = sessions.filter((session) => session.status === "scored");
+    const completedLoops = scored.filter(
+      (session) => session.previousSessionId !== undefined,
+    );
+
+    return {
+      scoredTakes: scored.length,
+      completedLoops: completedLoops.length,
+      lastActiveAt: sessions.length > 0
+        ? Math.max(...sessions.map((session) => session.createdAt))
+        : null,
     };
   },
 });

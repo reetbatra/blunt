@@ -7,7 +7,12 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CoachPrompt, PromptCategory, StoredSession } from "@/lib/blunt/types";
+import type {
+  AnonymousProgress,
+  CoachPrompt,
+  PromptCategory,
+  StoredSession,
+} from "@/lib/blunt/types";
 
 const CATEGORIES: Array<{ value: PromptCategory; label: string; blurb: string }> = [
   {
@@ -37,6 +42,8 @@ const CATEGORIES: Array<{ value: PromptCategory; label: string; blurb: string }>
   },
 ];
 
+const ANONYMOUS_ID_KEY = "blunt-anonymous-id";
+
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
 }
@@ -46,6 +53,49 @@ function formatDuration(ms: number) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatLastActive(timestamp: number | null) {
+  if (!timestamp) {
+    return "No reps yet";
+  }
+
+  const diffMs = Date.now() - timestamp;
+  const diffMinutes = Math.max(1, Math.round(diffMs / 60_000));
+  if (diffMinutes < 60) {
+    return `${diffMinutes}m ago`;
+  }
+
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+function createAnonymousId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `blunt-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+}
+
+function getStoredAnonymousId() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const existing = window.localStorage.getItem(ANONYMOUS_ID_KEY);
+  if (existing) {
+    return existing;
+  }
+
+  const next = createAnonymousId();
+  window.localStorage.setItem(ANONYMOUS_ID_KEY, next);
+  return next;
 }
 
 function formatDelta(current: number, previous: number, inverse?: boolean) {
@@ -156,6 +206,7 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
 }
 
 export function BluntApp() {
+  const [anonymousId] = useState<string | null>(() => getStoredAnonymousId());
   const [category, setCategory] = useState<PromptCategory>("interview");
   const [prompt, setPrompt] = useState<CoachPrompt | null>(null);
   const [promptLoading, setPromptLoading] = useState(false);
@@ -167,6 +218,13 @@ export function BluntApp() {
   const [firstSession, setFirstSession] = useState<StoredSession | null>(null);
   const [latestSession, setLatestSession] = useState<StoredSession | null>(null);
   const [redoSession, setRedoSession] = useState<StoredSession | null>(null);
+  const [history, setHistory] = useState<StoredSession[]>([]);
+  const [progress, setProgress] = useState<AnonymousProgress>({
+    scoredTakes: 0,
+    completedLoops: 0,
+    lastActiveAt: null,
+  });
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -181,6 +239,14 @@ export function BluntApp() {
       cleanupRecorder();
     };
   }, []);
+
+  useEffect(() => {
+    if (!anonymousId) {
+      return;
+    }
+
+    void loadHistory(anonymousId);
+  }, [anonymousId]);
 
   useEffect(() => {
     if (!latestSession?.critiqueAudioUrl) {
@@ -210,6 +276,37 @@ export function BluntApp() {
     recorderRef.current = null;
     chunksRef.current = [];
     setIsRecording(false);
+  }
+
+  async function loadHistory(id: string) {
+    setHistoryLoading(true);
+    try {
+      const response = await fetch(
+        `/api/session/history?anonymousId=${encodeURIComponent(id)}`,
+      );
+      const json = (await response.json()) as {
+        sessions?: StoredSession[];
+        progress?: AnonymousProgress;
+      };
+      if (!response.ok) {
+        throw new Error("Couldn't load history");
+      }
+
+      startTransition(() => {
+        setHistory(json.sessions ?? []);
+        setProgress(
+          json.progress ?? {
+            scoredTakes: 0,
+            completedLoops: 0,
+            lastActiveAt: null,
+          },
+        );
+      });
+    } catch {
+      // History is helpful, not critical to the loop.
+    } finally {
+      setHistoryLoading(false);
+    }
   }
 
   async function fetchPrompt(nextCategory = category) {
@@ -346,6 +443,9 @@ export function BluntApp() {
       );
       formData.append("prompt", JSON.stringify(prompt));
       formData.append("durationMs", String(durationMs));
+      if (anonymousId) {
+        formData.append("anonymousId", anonymousId);
+      }
       if (mode === "redo" && firstSession) {
         formData.append("previousSessionId", firstSession.id);
       }
@@ -373,6 +473,9 @@ export function BluntApp() {
           setRedoSession(json.session);
         }
       });
+      if (anonymousId) {
+        void loadHistory(anonymousId);
+      }
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -566,6 +669,29 @@ export function BluntApp() {
               </div>
             </div>
 
+            <div className="border border-line bg-foreground/[0.03] p-6 sm:p-8">
+              <p className="font-mono text-xs uppercase tracking-[0.24em] text-muted">
+                Your reps
+              </p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <Metric
+                  label="Scored takes"
+                  value={String(progress.scoredTakes)}
+                  detail="Real takes that landed a score."
+                />
+                <Metric
+                  label="Full loops"
+                  value={String(progress.completedLoops)}
+                  detail="Meaningful actions: critique plus redo."
+                />
+                <Metric
+                  label="Last active"
+                  value={formatLastActive(progress.lastActiveAt)}
+                  detail="Anonymous by default. Still remembers your reps."
+                />
+              </div>
+            </div>
+
             {latestSession ? (
               <SessionCard
                 title={
@@ -642,6 +768,49 @@ export function BluntApp() {
             </div>
           </section>
         ) : null}
+
+        <section className="mx-auto mt-10 max-w-6xl border border-line bg-foreground/[0.03] p-6 sm:p-8">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-[0.24em] text-accent">
+                Session history
+              </p>
+              <h2 className="mt-3 font-display text-4xl uppercase tracking-tight sm:text-5xl">
+                Your recent reps
+              </h2>
+            </div>
+            {historyLoading ? (
+              <span className="font-mono text-xs uppercase tracking-[0.24em] text-muted">
+                Loading...
+              </span>
+            ) : null}
+          </div>
+
+          {history.length > 0 ? (
+            <div className="mt-8 grid gap-4 lg:grid-cols-2">
+              {history.map((session) => (
+                <SessionCard
+                  key={session.id}
+                  title={
+                    session.previousSessionId ? "Re-record" : session.prompt.label
+                  }
+                  session={session}
+                  accent={session.id === latestSession?.id}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="mt-8 border border-dashed border-line p-6">
+              <p className="font-display text-3xl uppercase tracking-tight">
+                No history yet
+              </p>
+              <p className="mt-3 leading-7 text-foreground/75">
+                Finish a scored take and Blunt will keep your last reps around so you
+                can see whether the filler is actually dying.
+              </p>
+            </div>
+          )}
+        </section>
       </main>
     </div>
   );
