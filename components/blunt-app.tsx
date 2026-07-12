@@ -7,6 +7,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { trackEvent } from "@/lib/analytics";
+import { getFrameworkRecommendation } from "@/lib/blunt/frameworks";
 import type {
   AnonymousProgress,
   CoachPrompt,
@@ -205,6 +207,53 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
+function FrameworkCoach({
+  prompt,
+  detectedFramework,
+}: {
+  prompt: CoachPrompt;
+  detectedFramework: StoredSession["scores"]["frameworkUsed"];
+}) {
+  const framework = getFrameworkRecommendation(prompt, detectedFramework);
+
+  return (
+    <div className="border border-line bg-foreground/[0.03] p-6 sm:p-8">
+      <p className="font-mono text-xs uppercase tracking-[0.24em] text-accent">
+        Next take framework
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <span className="font-display text-3xl uppercase tracking-tight">
+          {framework.name}
+        </span>
+        <span className="border border-line px-3 py-2 font-mono text-xs uppercase tracking-[0.18em] text-muted">
+          {framework.shortLabel}
+        </span>
+      </div>
+      <p className="mt-4 leading-7 text-foreground/80">{framework.why}</p>
+      <div className="mt-6 grid gap-3">
+        {framework.steps.map((step) => (
+          <div key={step} className="border border-line p-3">
+            <p className="text-sm leading-6 text-foreground/85">{step}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-6 border border-accent/50 bg-accent/[0.06] p-4">
+        <p className="font-mono text-xs uppercase tracking-[0.24em] text-accent">
+          Example opener
+        </p>
+        <p className="mt-3 text-base leading-7 text-foreground/90">
+          {framework.exampleOpener}
+        </p>
+      </div>
+      <p className="mt-5 text-sm leading-6 text-foreground/70">
+        {framework.isAlreadyUsingIt
+          ? "You are already circling the right framework. Clean up the wording and land each step harder."
+          : framework.fallbackWhenMissing}
+      </p>
+    </div>
+  );
+}
+
 export function BluntApp() {
   const [anonymousId] = useState<string | null>(() => getStoredAnonymousId());
   const [category, setCategory] = useState<PromptCategory>("interview");
@@ -336,6 +385,7 @@ export function BluntApp() {
         setRecordMode("first");
         setTimeLeftMs(60_000);
       });
+      trackEvent("prompt_spun", { category: nextCategory });
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -371,6 +421,9 @@ export function BluntApp() {
     setLatestSession(null);
     setRecordMode(mode);
     pendingModeRef.current = mode;
+    trackEvent(mode === "first" ? "first_take_started" : "redo_started", {
+      category: prompt.category,
+    });
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -473,6 +526,20 @@ export function BluntApp() {
           setRedoSession(json.session);
         }
       });
+      if (json.session?.status === "scored") {
+        trackEvent(mode === "first" ? "first_take_scored" : "redo_completed", {
+          category: prompt.category,
+          framework: json.session.scores.frameworkUsed ?? "none",
+          filler_count: json.session.scores.fillerCount,
+        });
+        if (mode === "redo") {
+          trackEvent("full_loop_completed", {
+            category: prompt.category,
+            first_framework: firstSession?.scores.frameworkUsed ?? "none",
+            second_framework: json.session.scores.frameworkUsed ?? "none",
+          });
+        }
+      }
       if (anonymousId) {
         void loadHistory(anonymousId);
       }
@@ -493,6 +560,9 @@ export function BluntApp() {
     Boolean(firstSession) &&
     firstSession?.status === "scored" &&
     firstSession.prompt.id === prompt?.id;
+  const frameworkPrompt = prompt ?? latestSession?.prompt ?? firstSession?.prompt ?? null;
+  const detectedFramework =
+    latestSession?.scores.frameworkUsed ?? firstSession?.scores.frameworkUsed ?? "none";
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,#24150e,transparent_36%),linear-gradient(180deg,#0a0a0a_0%,#0e0d0b_100%)] text-foreground">
@@ -646,6 +716,13 @@ export function BluntApp() {
           </section>
 
           <section className="grid gap-6">
+            {frameworkPrompt ? (
+              <FrameworkCoach
+                prompt={frameworkPrompt}
+                detectedFramework={detectedFramework}
+              />
+            ) : null}
+
             <div className="border border-line bg-foreground/[0.03] p-6 sm:p-8">
               <p className="font-mono text-xs uppercase tracking-[0.24em] text-muted">
                 What Blunt cares about
