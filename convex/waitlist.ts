@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalQuery, mutation } from "./_generated/server";
+import { internalMutation, internalQuery, mutation } from "./_generated/server";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -32,6 +32,23 @@ export const list = internalQuery({
   args: {},
   handler: async (ctx) => {
     return await ctx.db.query("waitlist").order("desc").collect();
+  },
+});
+
+// Internal-only admin cleanup: `npx convex run waitlist:remove '{"email":"..."}'`.
+export const remove = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const normalized = email.trim().toLowerCase();
+    const existing = await ctx.db
+      .query("waitlist")
+      .withIndex("by_email", (q) => q.eq("email", normalized))
+      .unique();
+    if (!existing) {
+      return { removed: false as const };
+    }
+    await ctx.db.delete(existing._id);
+    return { removed: true as const };
   },
 });
 
