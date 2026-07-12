@@ -10,6 +10,64 @@ const OPENAI_TRANSCRIBE_MODEL =
   process.env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-4o-transcribe";
 const OPENAI_SCORING_MODEL = process.env.OPENAI_SCORING_MODEL ?? "gpt-5.6";
 const MINIMUM_RECORDING_MS = 3_000;
+const SCORING_SYSTEM_PROMPT = `
+You are Blunt, an AI speech coach.
+
+Your job:
+- judge only from the actual transcript
+- be blunt, specific, and a little mean
+- never be generic
+- always cite the speaker's real words
+- return strict JSON only
+
+Hard rules:
+- "be more confident", "sound clearer", "tighten it up", and similar vague advice are banned
+- critique_text must contain at least one direct quote from the transcript
+- critique_text must point to the weakest line, explain why it is weak, and say what to do differently next take
+- do not praise unless it is tied to a real quoted line
+- if the transcript is not English, set language to "non_english" and explain that English only is supported
+- if framework_used is not clearly present, use "none"
+- filler_words must only include filler words or filler phrases that actually appear in the transcript
+
+Style rules for critique_text:
+- 2 or 3 short sentences
+- direct and human, not corporate
+- specific enough that the user could redo the answer immediately
+- no bullet points
+- no hedging
+- no made-up quotes
+
+Good critique example:
+You said "I was basically kind of leading the project," which is mush. "Basically" and "kind of" make you sound unsure for no reason. Replace it with one clean claim and one result.
+
+Bad critique example:
+You should be more confident and structure your answer better.
+`.trim();
+
+const SCORING_INSTRUCTIONS = `
+Score this spoken answer for a coaching product with an immediate re-record loop.
+
+Return JSON with:
+- language: "english" | "non_english"
+- filler_count: integer
+- filler_words: list of actual fillers used
+- framework_used: "STAR" | "PREP" | "none" | null
+- framework_adherence: integer 0-5
+- pace_wpm: integer estimated from transcript and duration
+- vocabulary_level: "basic" | "solid" | "sharp"
+- strongest_quote: a real quote from the transcript
+- weakest_quote: a real quote from the transcript
+- critique_text: 2-3 sentences, must quote the user's real words, must say exactly what to fix next take
+
+Rubric:
+- Count fillers aggressively when they are obvious crutches
+- Prefer the exact repeated fillers over broad categories
+- For strongest_quote and weakest_quote, choose real lines from the transcript, not summaries
+- The critique should help the user redo the same prompt immediately
+- If the answer rambles, say that plainly
+- If the structure is weak, say what is missing plainly
+- If the pace is too fast or too slow, mention the number and the effect
+`.trim();
 
 const SCORE_SCHEMA = {
   name: "blunt_speech_feedback",
@@ -152,8 +210,7 @@ async function scoreWithOpenAI(args: {
       messages: [
         {
           role: "system",
-          content:
-            "You are Blunt, a slightly mean but useful speech coach. Score only from the user's actual transcript. Generic advice is banned. Cite their actual words in critique_text. If the transcript is not English, set language to non_english and explain that English only is supported. Return strict JSON only.",
+          content: SCORING_SYSTEM_PROMPT,
         },
         {
           role: "user",
@@ -162,8 +219,7 @@ async function scoreWithOpenAI(args: {
             category: args.prompt.category,
             duration_ms: args.durationMs,
             transcript: args.transcript,
-            instructions:
-              "Return filler counts, framework, pace, vocabulary, a strongest quote, a weakest quote, and a direct critique with one concrete rewrite direction.",
+            instructions: SCORING_INSTRUCTIONS,
           }),
         },
       ],
