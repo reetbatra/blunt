@@ -2,7 +2,7 @@
 
 ## Surface area
 
-- Production host: `https://bluntapp.reetbatra.com`
+- Production host: `https://blunt.reetbatra.com`
 - `/` stays the marketing and waitlist page
 - `/coach` is the product loop
 - `POST /api/prompt` returns a prompt for a chosen category

@@ -7,7 +7,7 @@ This repo now ships both:
 - `/`: the waitlist landing page
 - `/coach`: the product loop itself
 
-Production domain: `https://bluntapp.reetbatra.com`
+Production domain: `https://blunt.reetbatra.com`
 
 ## Stack
 

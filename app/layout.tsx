@@ -3,7 +3,7 @@ import { Archivo_Black, Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 
-const siteUrl = new URL("https://bluntapp.reetbatra.com");
+const siteUrl = new URL("https://blunt.reetbatra.com");
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
